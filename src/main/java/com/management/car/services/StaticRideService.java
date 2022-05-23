@@ -2,6 +2,7 @@ package com.management.car.services;
 
 import com.management.car.cache.Cache;
 import com.management.car.exceptions.RideBookingException;
+import com.management.car.models.City;
 import com.management.car.models.Invoice;
 import com.management.car.models.Location;
 import com.management.car.models.Ride;
@@ -14,8 +15,10 @@ import jakarta.inject.Singleton;
 
 import java.time.ZonedDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Singleton
 public class StaticRideService implements RideService {
@@ -37,8 +40,7 @@ public class StaticRideService implements RideService {
         // In realtime, below strategy selection could driven from configurations
         CabFindingStrategy cabFindingStrategy = new MostIdleCabFindingStrategy(cache);
         Optional<Cab> cab = cabFinder.findCab(fromLocation, cabFindingStrategy);
-        if (cab.isEmpty())
-            throw new RideBookingException("Unable to book ride as no cab available");
+        if (cab.isEmpty()) throw new RideBookingException("Unable to book ride as no cab available");
         Ride ride = new Ride();
         ride.setId(IDGenerator.nextValue());
         ride.setCab(cab.get());
@@ -50,21 +52,31 @@ public class StaticRideService implements RideService {
         ride.setStartTime(ZonedDateTime.now());
         ride.setEndTime(null);
         RIDE_MAP.put(ride.getId(), ride);
-        cabService.updateCabStatus(cab.get().getRegistrationNumber(), CabStatus.ON_TRIP);
+        cabService.updateCabStatus(cab.get()
+                                      .getRegistrationNumber(), CabStatus.ON_TRIP);
         return ride;
     }
 
     @Override
     public Invoice endRide(Long rideId) {
         Ride ride = RIDE_MAP.get(rideId);
-        if (ride == null)
-            throw new RideBookingException("Unable to end the ride. Ride missing!");
+        if (ride == null) throw new RideBookingException("Unable to end the ride. Ride missing!");
         ride.setEndTime(ZonedDateTime.now());
         ride.setStatus(RideStatus.COMPLETED);
-        ride.getCab().setCurrentLocation(ride.getToLocation());
+        ride.getCab()
+            .setCurrentLocation(ride.getToLocation());
         Invoice invoice = invoiceGenerator.generate(ride);
         ride.setInvoice(invoice);
-        cabService.updateCabStatus(ride.getCab().getRegistrationNumber(), CabStatus.IDLE);
+        cabService.updateCabStatus(ride.getCab()
+                                       .getRegistrationNumber(), CabStatus.IDLE);
         return invoice;
+    }
+
+    @Override
+    public Map<City, List<Ride>> getAllRidesPerCities(ZonedDateTime date) {
+        return RIDE_MAP.values()
+                       .stream()
+                       .collect(Collectors.groupingBy(ride -> ride.getFromLocation()
+                                                                  .getCity()));
     }
 }
